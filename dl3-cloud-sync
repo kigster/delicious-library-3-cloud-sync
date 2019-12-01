@@ -74,7 +74,7 @@ export DL3__LibFilePath="${DL3__LibPath}/${DL3__DatabaseName}"
 export DL3__Role=
 # destination folder 
 export DL3__SyncDir=
-export DL3__ForceBackup=false=
+export DL3__ForceBackup=false
 
 dl3-time-now() {
   date "+%Y-%m-%d.%H:%M:%S"
@@ -270,7 +270,8 @@ $(dl3-header WARNING REMINDER)
      data files. ${bldred}Data loss may occur as a result.${clr}
 
      Enjoy!
-    "
+"
+    hr
 
     return 0
   else 

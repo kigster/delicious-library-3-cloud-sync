@@ -25,6 +25,10 @@ Unfortunately, the authors did not address merging information, so if you change
 
 ![usage](dl3.png)
 
+### Example
+
+![migrate](migrate.png)
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at <https://github.com/kigster/delicious-library-3-cloud-sync>
