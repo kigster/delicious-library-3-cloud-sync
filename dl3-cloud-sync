@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+# vi: ft=sh
+#
+# DESCRIPTION
+# 
+# This BASH script is meant to help switching the source location
+# of the Delicious Library 3™ software to another folder,
+# presumably with a network synchronization capability, so that
+# the same library can be viewed and edited on antoher computer.
+#
+# WARNING:
+# 
+# Since the developer decided to be lazy enough and not worry about
+# cloud synchronization, you must make sure to never run software
+# that uses the network library on more than one computer at any given
+# time, otherwise you may end up corrupting your library.
+#
+# MIT LICENSE
+# 
+# Text of this license may be found here:
+# https://opensource.org/licenses/MIT
+#
+# Copyright © 2019 Konstantin Gredeskoul, all rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining 
+# a copy of this software and associated documentation files (the 
+# "Software"), to deal in the Software without restriction, including 
+# without limitation the rights to use, copy, modify, merge, publish, 
+# distribute, sublicense, and/or sell copies of the Software, and to 
+# permit persons to whom the Software is furnished to do so, subject to 
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be 
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS 
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN 
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+# SOFTWARE.
+
+set +e
+
+[[ -n $(which git) ]] || { 
+  echo "You must have 'git' installed to run this script."
+  echo "Please run 'xcode-select --install' and once it completes, "
+  echo "Re-run this script."
+  exit 244
+}
+
+# Install BashMatic Framework
+export BashMatic="${HOME}/.bashmatic"
+[[ -s ${BashMatic}/init.sh ]] || {
+  rm -rf "${BashMatic}" 2>/dev/null
+  git clone https://github.com/kigster/bashmatic "${BashMatic}" 1>/dev/null 2>&1 
+}
+source "${BashMatic}/init.sh"
+run::set-all abort-on-error
+
+# Declarations
+export DL3__Version="0.1.1"
+export DL3__ProgramName="dl3-cloud-sync"
+export DL3__DatabaseName="Delicious Library Items.deliciouslibrary3"
+
+export DL3__LibEnclosingDir="/Users/${USER}/Library/Containers/com.delicious-monster.library3/Data/Library/Application Support"
+export DL3__LibDir="Delicious Library 3"
+export DL3__LibPath="${DL3__LibEnclosingDir}/${DL3__LibDir}"
+export DL3__LibFilePath="${DL3__LibPath}/${DL3__DatabaseName}"
+
+# must be master or replica
+export DL3__Role=
+# destination folder 
+export DL3__SyncDir=
+export DL3__ForceBackup=false=
+
+dl3-time-now() {
+  date "+%Y-%m-%d.%H:%M:%S"
+}
+
+dl3-header() {
+  printf "${bldblu}%s:${clr}\n" "$*"
+}
+
+dl3-usage() {
+  local cmd="${DL3__ProgramName}"
+  printf "
+$(dl3-header WARNING)
+  This script ONLY works if you are using a networked drive such as Dropbox,
+  iCloud, Google Drive, and can use a folder that's automatically sync'd 
+  between your computers. This script simply moves the actual library to that
+  networked folder, and links the original folder to it.
+
+$(dl3-header USAGE)
+  ${bldylw}${cmd} [ --master | --replica ] [ --B | --backup-only ] [ options ]
+
+$(dl3-header THE PROBLEM)
+  Delicious Library 3 Software uses a local database which does not 
+  auto-sync to your other computers. So you are forced to use export/import
+  workaround. Well, there is a better way. If you only have ONE computer total
+  this script is NOT for you.
+
+$(dl3-header DESCRIPTION)
+  If you have more than one computer, the one that has the most up to date
+  library contents will be called ${bldblu}master${clr} and the other computer
+  where you want to have the data updated we'll call ${bldpur}replica${clr}.
+
+  ${bold}${italic}Using this script you can relocate the data files of the 
+  ${bldblu}master${clr} to a folder such as on Dropbox, iCloud or Google Drive,
+  which can be automatically replicated to another computer. Then, you perform
+  a similar operation on the other computer, except since the network library
+  already exists, the script will simply link to it. Thus both computers will
+  now be using a shared folder that's automatically sync'd.
+
+$(dl3-header WARNING)
+  1. ${bldylw}Shutdown the Delicious Library Software when you perform these 
+     operations.${clr}
+
+  2. ${bldylw}After moving the library to shared location, you must never run the
+     software on both computers at the same time, as this may corrupt the 
+     data files. ${bldred}Data loss may occur as a result.${clr}
+
+$(dl3-header FLAGS)
+  -d | --dir DIR         Sync folder that should be located under the
+                         top-level directory managed by Dropbox, iCloud, etc.
+                         If not found, it will be created.
+                         
+  -b | --backup DIR      Backup folder, the default is the sync folder.
+                         Used during the migration.
+
+  -B | --backup-only     With this flag, ONLY backup is created and no migration
+                         occurs, and the folder specifed by -d is used as destination.
+                         
+  -m | --master          Use this library as the authorative one.
+  -m | --replica         Replace or setup this computer with the networked library.
+
+  -n | --dry-run         Dry run (do not actually run anything)
+  -h | --help            This help screen.
+
+$(dl3-header EXAMPLES)
+  ${undblu}Step 1 (on the master computer):${clr}
+
+  On the master computer that has the authoratative library
+
+   > ${bldgrn}${cmd} -d ~/Dropbox/DeliciousLibrary3 --master${clr}
+  
+  After running, the library will now be on your Dropbox, and a 
+  backup will be created at the same level at the destination,
+  i.e. on DropBox. You can now start the Delicious Library software
+  and verify it still has your files. Once verified, exit.
+
+  ${undblu}Step 2 (on any additional computer)${clr}
+  Assuming the same Dropbox, etc folder is sync'd to the other computers,
+  you should wait until the folder you provided in ${bldgrn}-d${clr} on
+  master has now appeared on this computer. Once it's there, run:
+
+  > ${bldgrn}${cmd} -d ~/Dropbox/DeliciousLibrary3 --replica${clr}
+
+  In the event that the second computer had it's own version of the library,
+  it will be backed up as well and placed right next to the sync folder.
+  After that, the library location will be replaced with a symlink, 
+  and your computers should now be in sync with the first one.
+
+"
+}
+
+function DL3::library-backup-file() {
+  [[ -z ${DL3__SyncDir} ]] && { error "Destination is not known"; exit 1 ; }
+  [[ -z ${DL3__BackupDir} ]] && DL3__BackupDir="${DL3__SyncDir}/${DL3__LibDir} Backups/$(hostname -s | tr ' ' '-')"
+  DL3__BackupFile="backup-$(dl3-time-now).tgz"
+  [[ -d "${DL3__BackupDir}" ]] || run "mkdir -p \"${DL3__BackupDir}\""
+
+  export DL3__BackupDir
+  export DL3__BackupFile
+  export DL3__BackupPath="${DL3__BackupDir}/${DL3__BackupFile}"
+}
+
+function DL3::validate-master() {
+  [[ -f "${DL3__LibFilePath}" ]] || { 
+    error "Fatal Error: " \
+          "Source library file was not found: " \
+          "${bldgrn}${DL3__LibFilePath}"
+          exit 1
+  }
+}
+
+function DL3::validate() {
+  [[ -z "${DL3__SyncDir}" ]] && {
+    error "Please provide valid directory with --dir flag." 
+    exit 4
+  }
+
+  [[ -d "${DL3__SyncDir}" ]] || run "mkdir -p \"${DL3__SyncDir}\""
+
+  [[ ${DL3__ForceBackup} == false && -L "${DL3__LibPath}" ]] && {
+    error "Library path is already a symlink?" \
+      "Perhaps the script already ran? Library Path is:" \
+      "${bldgrn}${DL3__LibPath}"
+    ls -al "${DL3__LibPath}"    
+    exit 2
+  }
+
+  [[ ${DL3__Role} == "master" ]] && DL3::validate-master
+}
+
+# We should do backup if the library file exists, and the enclosing
+# folder is not a symlink
+function DL3::should-backup() {
+  [[ -f "${DL3__LibFilePath}" && ! -L "${DL3__LibPath}" ]] || [[ ${DL3__ForceBackup} == true ]]
+}
+
+function DL3::sync() {
+  local source="${DL3__LibPath}"
+  local dest="${DL3__SyncDir}/${DL3__LibDir}"
+
+  h2 "Welcome to Delicious Library 3 Cloud Sync Version ${DL3__Version}" \
+     "Running validations..."
+
+  DL3::validate
+  DL3::library-backup-file
+
+  if [[ -n ${DEBUG} ]]; then
+    info "Source: ${source}" 
+    info "Dest: ${dest}"
+    info "Backup: ${DL3__BackupPath}"
+  fi
+
+  # Create folders
+  [[ -d "${DL3__SyncDir}" ]] || run "mkdir -p \"${DL3__SyncDir}\""
+
+  DL3::should-backup && { 
+    hl::subtle "Performing a backup of existing files..."
+    
+    #run::set-next abort-on-error show-output-on
+    local flags="cvzf"
+    ${DL3__ForceBackup} && flags="L${flags}"
+    run "tar ${flags} \"${DL3__BackupPath}\" \"${source}\""
+
+    if ${DL3__ForceBackup}; then
+      success "Backup completed."
+      echo
+      exit 0
+    fi
+
+    if [[ ${DL3__Role} == "master" ]]; then
+      hl::subtle "Moving actual library to the networked location..."
+      run "mv \"${source}\" \"${dest}\""
+    fi
+  }
+
+  if [[ -d "${dest}" && -f "${dest}/${DL3__DatabaseName}" ]]; then
+    [[ -L "${DL3__LibPath}" ]] || {
+      hl::subtle "Creating a symlink to the networked location..."
+      run "ln -nfs \"${dest}\" \"${source}\""
+    }
+  fi
+
+  if [[ -L "${DL3__LibPath}" && -f "${dest}/${DL3__DatabaseName}" ]]; then
+    echo
+    success "Library has been relocated."
+    echo
+
+    printf "
+
+$(dl3-header WARNING REMINDER)
+     ${bldylw}After moving the library to a shared location, you must never run the
+     software on both computers at the same time, as this may corrupt the
+     data files. ${bldred}Data loss may occur as a result.${clr}
+
+     Enjoy!
+    "
+
+    return 0
+  else 
+    [[ ${LibRun__DryRun} -eq ${True} ]] || {
+      warning "Something didn't go well: check that the following folder is a symlink:" \
+        "${bldblu}${DL3__LibPath}" \
+        "and the follownig is the file:" \
+        "${bldblu}${dest}/${DL3__DatabaseName}"
+      return 1
+    }
+  fi
+}
+
+[[ -z "$1" ]] && { dl3-usage; exit 0; }
+
+# Parse additional flags
+while :; do
+  case $1 in
+    -B|--backup-only)
+      export DL3__ForceBackup=true
+      shift
+      ;;
+    -m|--master)
+      export DL3__Role=master
+      shift
+      ;;
+    -r|--replica)
+      export DL3__Role=replica
+      shift
+      ;;
+    -d|--dir)
+      shift
+      [[ -z $1 ]] && { error "-d require an argument"; exit 1; }
+      export DL3__SyncDir="$1"
+      [[ -d "${DL3__SyncDir}" ]] || {
+        error "Destination folder should exist and be on a network-sync'd drive."
+        exit 4
+      }
+      shift
+      ;;
+    -b|--backup)
+      shift
+      [[ -z $1 ]] && { error "-b require an argument"; exit 1; }
+      export DL3__BackupDir="$1"
+      shift
+      ;;
+    -n|--dry-run)
+      run::set-all dry-run-on
+      shift
+      ;;
+    -h|-\?|--help)
+      shift
+      dl3-usage
+      exit 0
+      ;;
+    --) # End of all options; anything after will be passed to the action function
+      shift
+      break
+      ;;
+    -?*)
+      printf 'WARN: Unknown option (ignored): %s\n' "$1" >&2
+      exit 127
+      shift
+      ;;
+    *)
+      [[ -z "$1" ]] && break
+      shift
+      ;;
+  esac
+done
+
+[[ ${DL3__Role} == "master" || ${DL3__Role} == "replica" || ${DL3__ForceBackup} == true ]] || {
+  error "Please specify either --master or --replica"
+  exit 2
+}
+
+DL3::sync
+
+
